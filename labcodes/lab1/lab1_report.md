@@ -28,20 +28,33 @@ $(UCOREIMG): $(kernel) $(bootblock)
         //之后可以使用@来遍历这些文件，减少makefile的工作量
     //bootblock
     //为了生成bootblock，首先需要生成bootasm.o、bootmain.o、sign
-    bootblock = $(call totarget,bootblock)
     $(bootblock): $(call toobj,$(bootfiles)) | $(call totarget,sign)
+        //我们发现bootfiles的作用是生成宏把bootblock需要的源文件编译
+        $(foreach f,$(bootfiles),$(call cc_compile,$(f),$(CC),$(CFLAGS) -Os -nostdinc))
+        //接下来是链接的过程，比较繁琐
         @echo + ld $@
+        //这一句把宏翻译之后就是生成bootblock.o
         $(V)$(LD) $(LDFLAGS) -N -e start -Ttext 0x7C00 $^ -o $(call toobj,bootblock)
+        //下面是objdump进行反汇编
         @$(OBJDUMP) -S $(call objfile,bootblock) > $(call asmfile,bootblock)
         @$(OBJDUMP) -t $(call objfile,bootblock) | $(SED) '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $(call symfile,bootblock)
         @$(OBJCOPY) -S -O binary $(call objfile,bootblock) $(call outfile,bootblock)
+        //使用sign工具处理bootblock.out，生成bootblock
         @$(call totarget,sign) $(call outfile,bootblock) $(bootblock)
-
-    $(call create_target,bootblock)
 ```
 
 
 [练习1.2] 一个被系统认为是符合规范的硬盘主引导扇区的特征是什么?
+
+从sign.c的代码来看，一个磁盘主引导扇区只有512字节。且
+第510个（倒数第二个）字节是0x55，
+第511个（倒数第一个）字节是0xAA。
+
+```
+char buf[512];
+buf[510] = 0x55;
+buf[511] = 0xAA;
+```
 
 ## [练习2]
 
