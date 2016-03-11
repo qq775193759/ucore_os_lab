@@ -7,8 +7,37 @@
 [练习1.1] 操作系统镜像文件 ucore.img 是如何一步一步生成的?(需要比较详细地解释 Makefile 中
 每一条相关命令和命令参数的含义,以及说明命令导致的结果)
 
+由于我之前对makefile不熟悉，所以参考了answer中的说明，也在网上查询了一些make的使用方法。
+
 ```
+UCOREIMG	:= $(call totarget,ucore.img)
 $(UCOREIMG): $(kernel) $(bootblock)
+    //kernal
+    //为了生存kernel,我们需要遍历KSRCDIR这个宏中定义的所有文件，编译出最终目标
+    $(kernel): tools/kernel.ld
+    $(kernel): $(KOBJS)
+        //KOBJS
+        KOBJS	= $(call read_packet,kernel libs)//libs文件夹
+        //body
+        @echo + ld $@//遍历并链接所有文件,之后使用linux的echo命令输出
+        $(V)$(LD) $(LDFLAGS) -T tools/kernel.ld -o $@ $(KOBJS)//连接kernal.ld
+        @$(OBJDUMP) -S $@ > $(call asmfile,kernel)//使用objdump进行反汇编
+        @$(OBJDUMP) -t $@ | $(SED) '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $(call symfile,kernel)
+        //通过下面这条指令添加所有需要编译链接的文件
+        $(call add_files_cc,$(call listf_cc,$(KSRCDIR)),kernel,$(KCFLAGS))
+        //之后可以使用@来遍历这些文件，减少makefile的工作量
+    //bootblock
+    //为了生成bootblock，首先需要生成bootasm.o、bootmain.o、sign
+    bootblock = $(call totarget,bootblock)
+    $(bootblock): $(call toobj,$(bootfiles)) | $(call totarget,sign)
+        @echo + ld $@
+        $(V)$(LD) $(LDFLAGS) -N -e start -Ttext 0x7C00 $^ -o $(call toobj,bootblock)
+        @$(OBJDUMP) -S $(call objfile,bootblock) > $(call asmfile,bootblock)
+        @$(OBJDUMP) -t $(call objfile,bootblock) | $(SED) '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $(call symfile,bootblock)
+        @$(OBJCOPY) -S -O binary $(call objfile,bootblock) $(call outfile,bootblock)
+        @$(call totarget,sign) $(call outfile,bootblock) $(bootblock)
+
+    $(call create_target,bootblock)
 ```
 
 
