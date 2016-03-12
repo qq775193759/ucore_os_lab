@@ -9,7 +9,7 @@
 
 由于我之前对makefile不熟悉，所以参考了answer中的说明，也在网上查询了一些make的使用方法。
 
-首先有一些定义在function.mk中，所以不能仅仅只看一个文件。
+首先有一些定义在function.mk中，所以不能仅仅只看makefile一个文件。
 
 ```
 UCOREIMG	:= $(call totarget,ucore.img)
@@ -63,18 +63,42 @@ buf[511] = 0xAA;
 [练习2.1] 从 CPU 加电后执行的第一条指令开始,单步跟踪 BIOS 的执行。
 
 第一步，在 lab1/tools/gdbinit 中 `target remote :1234` 前加一行 `set architecture i8086`，
-然后在makefile中加一个debug:
+然后使用makefile中debug命令
 ```
 debug: $(UCOREIMG)
 		$(V)$(TERMINAL) -e "$(QEMU) -S -s -d in_asm -D $(BINDIR)/q.log -parallel stdio -hda $< -serial null"
 		$(V)sleep 2
 		$(V)$(TERMINAL) -e "gdb -q -tui -x tools/gdbinit"
 ```
+这样就会出现一个神奇的gdb界面(比我之前的gdb要多一个看代码的区域)
 
 [练习2.2] 在初始化位置0x7c00 设置实地址断点,测试断点正常。
 
-[练习2.3] 在调用qemu 时增加-d in_asm -D q.log 参数，便可以将运行的汇编指令保存在q.log 中。
+在运行gdb之后，输入以下命令：
+```
+    b *0x7c00  //在0x7c00处设置断点。此地址是bootloader入口点地址，可看boot/bootasm.S的start地址处
+	c          //continue简称，表示继续执行
+	x /2i $pc  //显示当前eip处的汇编指令
+```
+我们可以看到：
+```
+	=> 0x7c00:      cli    
+	   0x7c01:      cld    
+```
+       
+
+[练习2.3] 从0x7c00开始跟踪代码运行,将单步跟踪反汇编得到的代码与bootasm.S和 bootblock.asm进行比较。
+
+在调用qemu 时增加-d in_asm -D q.log 参数，便可以将运行的汇编指令保存在q.log 中。
 将执行的汇编代码与bootasm.S 和 bootblock.asm 进行比较，看看二者是否一致。
+
+我们在makefile中增加一个和debug几乎一样只是能输出log的指令`debug-mon`
+```
+    debug-mon: $(UCOREIMG)
+    $(V)$(TERMINAL) -e "$(QEMU) -S -s -d in_asm -D $(BINDIR)/q.log -monitor stdio -hda $< -serial null"
+    $(V)sleep 2
+    $(V)$(TERMINAL) -e "gdb -q -x tools/gdbinit"
+```
 
 ## [练习3]
 分析bootloader 进入保护模式的过程。
