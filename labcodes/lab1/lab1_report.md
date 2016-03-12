@@ -9,6 +9,8 @@
 
 由于我之前对makefile不熟悉，所以参考了answer中的说明，也在网上查询了一些make的使用方法。
 
+首先有一些定义在function.mk中，所以不能仅仅只看一个文件。
+
 ```
 UCOREIMG	:= $(call totarget,ucore.img)
 $(UCOREIMG): $(kernel) $(bootblock)
@@ -59,6 +61,15 @@ buf[511] = 0xAA;
 ## [练习2]
 
 [练习2.1] 从 CPU 加电后执行的第一条指令开始,单步跟踪 BIOS 的执行。
+
+第一步，在 lab1/tools/gdbinit 中 `target remote :1234` 前加一行 `set architecture i8086`，
+然后在makefile中加一个debug:
+```
+debug: $(UCOREIMG)
+		$(V)$(TERMINAL) -e "$(QEMU) -S -s -d in_asm -D $(BINDIR)/q.log -parallel stdio -hda $< -serial null"
+		$(V)sleep 2
+		$(V)$(TERMINAL) -e "gdb -q -tui -x tools/gdbinit"
+```
 
 [练习2.2] 在初始化位置0x7c00 设置实地址断点,测试断点正常。
 
