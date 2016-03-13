@@ -66,9 +66,9 @@ buf[511] = 0xAA;
 然后使用makefile中debug命令
 ```
 debug: $(UCOREIMG)
-		$(V)$(TERMINAL) -e "$(QEMU) -S -s -d in_asm -D $(BINDIR)/q.log -parallel stdio -hda $< -serial null"
-		$(V)sleep 2
-		$(V)$(TERMINAL) -e "gdb -q -tui -x tools/gdbinit"
+	$(V)$(QEMU) -S -s -parallel stdio -hda $< -serial null &
+	$(V)sleep 2
+	$(V)$(TERMINAL) -e "gdb -q -tui -x tools/gdbinit"
 ```
 这样就会出现一个神奇的gdb界面(比我之前的gdb要多一个看代码的区域)
 
@@ -99,12 +99,121 @@ debug: $(UCOREIMG)
     $(V)sleep 2
     $(V)$(TERMINAL) -e "gdb -q -x tools/gdbinit"
 ```
+为了不用重复敲，我们把gdb的指令可以写在配置文件gdbinit中
+在tools/gdbinit结尾加上
+```
+	b *0x7c00
+	c
+	x /10i $pc
+```
+
+[练习2.4] 自己找一个bootloader或内核中的代码位置，设置断点并进行测试。
+```
+	b *address
+	c
+	x /10i $pc
+```
+在address处设置断点，然后continue，再查看pc处的内存，可以得知指令。
+
+除此以外我测试了gdbinit中每一句指令的含义和功能。
+
+`file bin/kernel`是使用bin/kernal作为操作系统
+
+`set architecture i8086`是使用实模式，`set architecture i386`是使用保护模式。
 
 ## [练习3]
 分析bootloader 进入保护模式的过程。
 
+跟踪到0x7c00得到bootloader的汇编码，实际上在bootasm.s文件中。我们来逐步分析。
+```
+//首先第一段是清空各寄存器，包括标志寄存器和段寄存器。
+.code16
+    cli
+    cld
+    xorw %ax, %ax
+    movw %ax, %ds
+    movw %ax, %es
+    movw %ax, %ss
+    
+//开启A20，使得可以访问32位地址空间
+seta20.1:
+    inb $0x64, %al                                  # Wait for not busy(8042 input buffer empty).
+    testb $0x2, %al
+    jnz seta20.1
+
+    movb $0xd1, %al                                 # 0xd1 -> port 0x64
+    outb %al, $0x64                                 # 0xd1 means: write data to 8042's P2 port
+
+seta20.2:
+    inb $0x64, %al                                  # Wait for not busy(8042 input buffer empty).
+    testb $0x2, %al
+    jnz seta20.2
+
+    movb $0xdf, %al                                 # 0xdf -> port 0x60
+    outb %al, $0x60                                 # 0xdf = 11011111, means set P2's A20 bit(the 1 bit) to 1
+
+//初始化GDT表
+    lgdt gdtdesc
+
+//进入保护模式，将CR0中的PE为置为1
+    movl %cr0, %eax
+    orl $CR0_PE_ON, %eax
+    movl %eax, %cr0    
+    
+//通过长跳转更新cs的基地址
+    ljmp $PROT_MODE_CSEG, $protcseg
+	.code32
+	protcseg:
+    
+//设置段寄存器，并建立堆栈
+    movw $PROT_MODE_DSEG, %ax                       # Our data segment selector
+    movw %ax, %ds                                   # -> DS: Data Segment
+    movw %ax, %es                                   # -> ES: Extra Segment
+    movw %ax, %fs                                   # -> FS
+    movw %ax, %gs                                   # -> GS
+    movw %ax, %ss                                   # -> SS: Stack Segment
+
+    # Set up the stack pointer and call into C. The stack region is from 0--start(0x7c00)
+    movl $0x0, %ebp
+    movl $start, %esp
+    
+//成功进入保护模式，进入bootmain
+    call bootmain
+
+```
+
+
 ## [练习4]
 分析bootloader加载ELF格式的OS的过程。
+
+首先分析函数调用的关系。
+
+main中调用readseg，readseg封装readsect。
+
++ readsect:从扇区中读取一个sector
+```
+//设置这些端口的值，使得能够读取secno的扇区
+    outb(0x1F2, 1);                         // count = 1
+    outb(0x1F3, secno & 0xFF);
+    outb(0x1F4, (secno >> 8) & 0xFF);
+    outb(0x1F5, (secno >> 16) & 0xFF);
+    outb(0x1F6, ((secno >> 24) & 0xF) | 0xE0);
+    outb(0x1F7, 0x20);                      // cmd 0x20 - read sectors
+```
++ readseg :封装了readsect，可以从扇区中读取任意长度的一段
+```
+//从secno开始读取count个大小
+    uintptr_t end_va = va + count;
+    va -= offset % SECTSIZE;
+    //do something
+    for (; va < end_va; va += SECTSIZE, secno ++) {
+        readsect((void *)va, secno);
+    }
+```
++ main  :读取ELF文件
+```
+```
+
 
 ## [练习5] 
 实现函数调用堆栈跟踪函数 
