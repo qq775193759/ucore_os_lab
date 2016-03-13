@@ -254,13 +254,14 @@ bad://死循环
 > 1.read ebp
 > 2.read eip
 > 3.递归(最多DEPTH次)打印栈信息
+
 ```
     uint32_t ebp = read_ebp(), eip = read_eip();//step 1,2
 
     int i, j;
     for (i = 0; ebp != 0 && i < STACKFRAME_DEPTH; i ++) {
         cprintf("ebp:0x%08x eip:0x%08x args:", ebp, eip);//print ebp eip
-        uint32_t *args = (uint32_t *)ebp + 2;//获取参数列表的首地址
+        uint32_t *args = (uint32_t *)ebp + 2;//获取参数列表的首地址，为ebp+2处
         for (j = 0; j < 4; j ++) {
             cprintf("0x%08x ", args[j]);//print 参数
         }
@@ -277,7 +278,7 @@ ebp:0x00007bf8 eip:0x00007d68 args:0xc031fcfa 0xc08ed88e 0x64e4d08e 0xfa7502a8
     <unknow>: -- 0x00007d67 --
 ```
 首先是ebp和eip的值，然后是4个参数的值，unknow表示不是在kernal中，猜想是在bootloader的函数值，应该是bootmain的信息。
-说明bootmain中ebp为0x7bf8。
+实际上是`((void (*)(void))(ELFHDR->e_entry & 0xFFFFFF))();`
 
 
 
@@ -286,11 +287,56 @@ ebp:0x00007bf8 eip:0x00007d68 args:0xc031fcfa 0xc08ed88e 0x64e4d08e 0xfa7502a8
 
 [练习6.1] 中断向量表中一个表项占多少字节？其中哪几位代表中断处理代码的入口？
 
+实模式占4个字节，保护模式占8个字节。实模式中，由两个字节的段地址和两个字节的偏移量组成，
+这样构成的地址便是相应中断处理程序的入口地址。但是，在保护模式下，由四字节的表项构成的中断向量表显然满足不了要求。
+这是因为，除了两个字节的段描述符，偏移量必用四字节来表示；‚要有反映模式切换的信息。
+
+在保护模式下，8字节的描述符，其中2-3字节是段选择子，0-1字节和6-7字节拼成位移。
+
+
 [练习6.2] 请编程完善kern/trap/trap.c中对中断向量表进行初始化的函数idt_init。
+```
+    extern uintptr_t __vectors[];//在vector.s中定义了__vectors[256]
+    int i;
+    for (i = 0; i < sizeof(idt) / sizeof(struct gatedesc); i ++) {
+        SETGATE(idt[i], 0, GD_KTEXT, __vectors[i], DPL_KERNEL);//一个赋值函数，定义在mmu.h中，初始化idt
+    }
+	// set for switch from user to kernel
+    SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
+	// load the IDT
+    lidt(&idt_pd);
+```
+加上这段代码后，make qemu程序就不会一下退出了，而是停下来。
 
 [练习6.3] 请编程完善trap.c中的中断处理函数trap，在对时钟中断进行处理的部分填写trap函数
+
+增加一个计数器自增的函数，这在课上也做过。
+```
+    ticks ++;
+    if (ticks % TICK_NUM == 0) print_ticks();
+```
+这样之后，每过一段时间会输出一个调试信息。
 
 ## [练习7]
 
 增加syscall功能，即增加一用户态函数（可执行一特定系统调用：获得时钟计数值），
 当内核初始完毕后，可从内核态返回到用户态的函数，而用户态的函数又通过系统调用得到内核态的服务
+
+还是和6.3类似，修改trap_dispatch中的`case T_SWITCH_TOU`和`T_SWITCH_TOK`。
+
+按照中断进入和退出的步骤，保存现场和恢复现场，设置FLAGS等，我们有：
+对TO User
+```
+	    tf->tf_cs = USER_CS;
+	    tf->tf_ds = USER_DS;
+	    tf->tf_es = USER_DS;
+	    tf->tf_ss = USER_DS;
+```
+	对TO Kernel
+
+```
+	    tf->tf_cs = KERNEL_CS;
+	    tf->tf_ds = KERNEL_DS;
+	    tf->tf_es = KERNEL_DS;
+```
+
