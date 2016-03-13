@@ -252,7 +252,9 @@ bad://死循环
 我们在print_stackframe中实现打印信息的功能。
 按照注释中说明的步骤，我们有如下步骤：
 > 1.read ebp
+
 > 2.read eip
+
 > 3.递归(最多DEPTH次)打印栈信息
 
 ```
@@ -332,7 +334,8 @@ ebp:0x00007bf8 eip:0x00007d68 args:0xc031fcfa 0xc08ed88e 0x64e4d08e 0xfa7502a8
 	    tf->tf_es = USER_DS;
 	    tf->tf_ss = USER_DS;
 ```
-	对TO Kernel
+
+对TO Kernel
 
 ```
 	    tf->tf_cs = KERNEL_CS;
