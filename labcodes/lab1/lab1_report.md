@@ -210,13 +210,76 @@ main中调用readseg，readseg封装readsect。
         readsect((void *)va, secno);
     }
 ```
-+ main  :读取ELF文件
++ bootmain:读取ELF文件
 ```
+bootmain(void) {
+    // read the 1st page off disk
+    readseg((uintptr_t)ELFHDR, SECTSIZE * 8, 0);
+
+    // is this a valid ELF?
+    if (ELFHDR->e_magic != ELF_MAGIC) {
+        goto bad;//如果不是ELF则
+    }
+
+    struct proghdr *ph, *eph;
+
+    // load each program segment (ignores ph flags)
+    ph = (struct proghdr *)((uintptr_t)ELFHDR + ELFHDR->e_phoff);//ph是描述表首地址
+    eph = ph + ELFHDR->e_phnum;//尾地址
+    //读取整个描述表，载入内存
+    for (; ph < eph; ph ++) {
+        readseg(ph->p_va & 0xFFFFFF, ph->p_memsz, ph->p_offset);
+    }
+
+    // call the entry point from the ELF header
+    // note: does not return
+    //找到内核入口，调用内核代码
+    ((void (*)(void))(ELFHDR->e_entry & 0xFFFFFF))();
+
+bad://死循环
+    outw(0x8A00, 0x8A00);
+    outw(0x8A00, 0x8E00);
+
+    /* do nothing */
+    while (1);
+}
 ```
 
 
 ## [练习5] 
 实现函数调用堆栈跟踪函数 
+
+我们在print_stackframe中实现打印信息的功能。
+按照注释中说明的步骤，我们有如下步骤：
+> 1.read ebp
+> 2.read eip
+> 3.递归(最多DEPTH次)打印栈信息
+```
+    uint32_t ebp = read_ebp(), eip = read_eip();//step 1,2
+
+    int i, j;
+    for (i = 0; ebp != 0 && i < STACKFRAME_DEPTH; i ++) {
+        cprintf("ebp:0x%08x eip:0x%08x args:", ebp, eip);//print ebp eip
+        uint32_t *args = (uint32_t *)ebp + 2;//获取参数列表的首地址
+        for (j = 0; j < 4; j ++) {
+            cprintf("0x%08x ", args[j]);//print 参数
+        }
+        cprintf("\n");
+        print_debuginfo(eip - 1);//print 对应的调用信息
+        //递归，维护eip和ebp
+        eip = ((uint32_t *)ebp)[1];
+        ebp = ((uint32_t *)ebp)[0];
+    }
+```
+最后一行为:
+```
+ebp:0x00007bf8 eip:0x00007d68 args:0xc031fcfa 0xc08ed88e 0x64e4d08e 0xfa7502a8 
+    <unknow>: -- 0x00007d67 --
+```
+首先是ebp和eip的值，然后是4个参数的值，unknow表示不是在kernal中，猜想是在bootloader的函数值，应该是bootmain的信息。
+说明bootmain中ebp为0x7bf8。
+
+
 
 ## [练习6]
 完善中断初始化和处理
